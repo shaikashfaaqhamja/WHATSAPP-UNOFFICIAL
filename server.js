@@ -178,25 +178,32 @@ function getQrPage() {
     body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #111; color: #eee; text-align: center; }
     h1 { font-size: 1.5rem; margin-bottom: 8px; }
     p { color: #aaa; margin: 8px 0; max-width: 360px; }
-    #status { margin: 24px 0; min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    #status { margin: 24px 0; min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     #status img { max-width: 280px; height: auto; border-radius: 12px; }
     .ready { color: #4ade80; }
     .waiting { color: #fbbf24; }
     .error { color: #f87171; }
+    .spinner { width: 40px; height: 40px; border: 3px solid #333; border-top-color: #fbbf24; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 16px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <h1>Connect WhatsApp</h1>
   <div id="status"><p>Loading…</p></div>
-  <p>Use the same secret in the app when sending via fallback.</p>
+  <p id="hint">Use the same secret in the app when sending via fallback.</p>
   <script>
     const secret = new URLSearchParams(location.search).get('secret');
     const statusEl = document.getElementById('status');
+    const hintEl = document.getElementById('hint');
     function show(msg, className) {
       statusEl.innerHTML = '<p class="' + (className || '') + '">' + msg + '</p>';
     }
+    function showWaiting(msg) {
+      statusEl.innerHTML = '<div class="spinner"></div><p class="waiting">' + msg + '</p>';
+    }
     function showQr(dataUrl) {
-      statusEl.innerHTML = '<p>Scan with WhatsApp on your phone:</p><p>Settings → Linked devices → Link a device</p><img src="' + dataUrl + '" alt="QR code">';
+      statusEl.innerHTML = '<p>Scan with WhatsApp on your phone</p><p style="font-size:0.9rem;color:#888">Settings → Linked devices → Link a device</p><img src="' + dataUrl + '" alt="QR code">';
+      if (hintEl) hintEl.textContent = 'Scan the QR above, then you can close this tab and use the app.';
     }
     if (!secret) {
       show('Add your secret to the URL: <br><code>?secret=YOUR_SECRET</code><br>Use the same secret you enter in the app.', 'error');
@@ -208,14 +215,15 @@ function getQrPage() {
             if (d.status === 'ready') { show('You\'re connected. You can close this tab and use the app.', 'ready'); return; }
             if (d.status === 'qr') { showQr(d.qr); return; }
             if (d.status === 'waiting') {
-              show('Preparing QR… (first time can take 20–40 seconds). Refreshing automatically.', 'waiting');
-              setTimeout(poll, 2500);
+              showWaiting('Preparing QR… The QR will appear here automatically. First time may take 30–60 seconds.');
+              setTimeout(poll, 1500);
               return;
             }
             show(d.error || d.message || 'Something went wrong.', 'error');
           })
           .catch(e => { show('Network error: ' + e.message, 'error'); });
       }
+      showWaiting('Connecting…');
       poll();
     }
   </script>
@@ -225,7 +233,8 @@ function getQrPage() {
 
 app.get('/qr', (req, res) => {
   const secret = authSecret(req.query.secret)
-  if (req.accepts('html') && !req.accepts('json')) {
+  const wantsJson = req.query.format === 'json' || (req.get && req.get('accept') && req.get('accept').toLowerCase().includes('application/json'))
+  if (!wantsJson) {
     return res.type('html').send(getQrPage())
   }
   if (!secret) {
