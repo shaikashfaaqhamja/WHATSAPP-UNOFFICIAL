@@ -166,6 +166,21 @@ app.get('/api/qr', (req, res) => {
   sendQrJson(secret, res)
 })
 
+app.get('/api/qr.png', (req, res) => {
+  const secret = authSecret(req.query.secret)
+  if (!secret) return res.status(401).end()
+  const state = getState(secret)
+  if (!state) return res.status(500).end()
+  if (state.isReady) return res.status(204).end()
+  if (!state.qrCode) return res.status(204).end()
+  const QRCode = require('qrcode')
+  QRCode.toBuffer(state.qrCode, { type: 'png', margin: 2 }, (err, buf) => {
+    if (err) return res.status(500).end()
+    res.setHeader('Cache-Control', 'no-store')
+    res.type('png').send(buf)
+  })
+})
+
 function getQrPage() {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -177,55 +192,95 @@ function getQrPage() {
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #111; color: #eee; text-align: center; }
     h1 { font-size: 1.5rem; margin-bottom: 8px; }
-    p { color: #aaa; margin: 8px 0; max-width: 360px; }
-    #status { margin: 24px 0; min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    p { color: #aaa; margin: 8px 0; max-width: 380px; }
+    #status { margin: 24px 0; min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     #status img { max-width: 280px; height: auto; border-radius: 12px; }
     .ready { color: #4ade80; }
     .waiting { color: #fbbf24; }
     .error { color: #f87171; }
-    .spinner { width: 40px; height: 40px; border: 3px solid #333; border-top-color: #fbbf24; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 16px auto; }
+    .spinner { width: 44px; height: 44px; border: 3px solid #333; border-top-color: #fbbf24; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 16px auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    a { color: #60a5fa; }
   </style>
 </head>
 <body>
   <h1>Connect WhatsApp</h1>
-  <div id="status"><p>Loading…</p></div>
+  <div id="status"></div>
   <p id="hint">Use the same secret in the app when sending via fallback.</p>
+  <img id="qrImg" alt="QR" style="display:none; max-width:280px; border-radius:12px;">
   <script>
-    const secret = new URLSearchParams(location.search).get('secret');
-    const statusEl = document.getElementById('status');
-    const hintEl = document.getElementById('hint');
-    function show(msg, className) {
-      statusEl.innerHTML = '<p class="' + (className || '') + '">' + msg + '</p>';
-    }
-    function showWaiting(msg) {
-      statusEl.innerHTML = '<div class="spinner"></div><p class="waiting">' + msg + '</p>';
-    }
-    function showQr(dataUrl) {
-      statusEl.innerHTML = '<p>Scan with WhatsApp on your phone</p><p style="font-size:0.9rem;color:#888">Settings → Linked devices → Link a device</p><img src="' + dataUrl + '" alt="QR code">';
-      if (hintEl) hintEl.textContent = 'Scan the QR above, then you can close this tab and use the app.';
-    }
-    if (!secret) {
-      show('Add your secret to the URL: <br><code>?secret=YOUR_SECRET</code><br>Use the same secret you enter in the app.', 'error');
-    } else {
+    (function() {
+      var secret = new URLSearchParams(location.search).get('secret');
+      var statusEl = document.getElementById('status');
+      var hintEl = document.getElementById('hint');
+      var qrImg = document.getElementById('qrImg');
+      var start = Date.now();
+      var qrShown = false;
+      function html(s) { statusEl.innerHTML = s; }
+      function show(msg, cls) { html('<p class="' + (cls || '') + '">' + msg + '</p>'); }
+      function showWaiting(msg) { html('<div class="spinner"></div><p class="waiting">' + msg + '</p>'); }
+      function showQrFromImg() {
+        if (qrShown) return;
+        qrShown = true;
+        statusEl.innerHTML = '<p>Scan with WhatsApp on your phone</p><p style="font-size:0.9rem;color:#888">Settings → Linked devices → Link a device</p>';
+        qrImg.style.display = 'block';
+        if (hintEl) hintEl.textContent = 'Scan the QR above, then close this tab and use the app.';
+      }
+      function showQr(dataUrl) {
+        if (qrShown) return;
+        qrShown = true;
+        html('<p>Scan with WhatsApp on your phone</p><p style="font-size:0.9rem;color:#888">Settings → Linked devices → Link a device</p><img src="' + (dataUrl || '').replace(/"/g, '&quot;') + '" alt="QR code">');
+        if (hintEl) hintEl.textContent = 'Scan the QR above, then close this tab and use the app.';
+      }
+      if (!secret) {
+        show('Add your secret to the URL: <br><code>?secret=YOUR_SECRET</code>', 'error');
+        return;
+      }
+      showWaiting('Connecting…');
+      function tickImg() {
+        if (qrShown) return;
+        fetch('/api/qr.png?secret=' + encodeURIComponent(secret) + '&_=' + Date.now())
+          .then(function(r) {
+            if (r.status === 200) return r.blob();
+            return null;
+          })
+          .then(function(blob) {
+            if (qrShown || !blob) return;
+            qrImg.onload = function() { showQrFromImg(); };
+            qrImg.src = URL.createObjectURL(blob);
+          });
+        setTimeout(tickImg, 2000);
+      }
+      tickImg();
       function poll() {
-        fetch('/api/qr?secret=' + encodeURIComponent(secret))
-          .then(r => r.json())
-          .then(d => {
-            if (d.status === 'ready') { show('You\'re connected. You can close this tab and use the app.', 'ready'); return; }
-            if (d.status === 'qr') { showQr(d.qr); return; }
+        if (qrShown) return;
+        var elapsed = ((Date.now() - start) / 1000) | 0;
+        var c = new AbortController();
+        var t = setTimeout(function() { c.abort(); }, 10000);
+        fetch('/api/qr?secret=' + encodeURIComponent(secret), { signal: c.signal })
+          .then(function(r) { clearTimeout(t); return r.json(); })
+          .then(function(d) {
+            if (d.status === 'ready') { show('You\'re connected. Close this tab and use the app.', 'ready'); return; }
+            if (d.status === 'qr' && d.qr) { showQr(d.qr); return; }
             if (d.status === 'waiting') {
-              showWaiting('Preparing QR… The QR will appear here automatically. First time may take 30–60 seconds.');
+              var msg = 'Preparing QR… It will appear here automatically.';
+              if (elapsed >= 60) msg += ' Taking long? <a href="#" onclick="location.reload(); return false;">Refresh the page</a>.';
+              else if (elapsed >= 20) msg += ' First time can take 1–2 min. Keep this tab open.';
+              showWaiting(msg);
               setTimeout(poll, 1500);
               return;
             }
             show(d.error || d.message || 'Something went wrong.', 'error');
           })
-          .catch(e => { show('Network error: ' + e.message, 'error'); });
+          .catch(function(e) {
+            clearTimeout(t);
+            if (qrShown) return;
+            if (e.name === 'AbortError') show('Server slow. <a href="#" onclick="location.reload(); return false;">Refresh</a> to try again.', 'error');
+            else show('Error: ' + (e.message || 'Network problem') + ' <a href="#" onclick="location.reload(); return false;">Refresh</a>', 'error');
+          });
       }
-      showWaiting('Connecting…');
       poll();
-    }
+    })();
   </script>
 </body>
 </html>`
