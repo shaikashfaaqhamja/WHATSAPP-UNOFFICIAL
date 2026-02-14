@@ -59,7 +59,8 @@ function getOrCreateClient(secret) {
     authStrategy: new LocalAuth({ clientId: id, dataPath }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--single-process'],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     },
   })
 
@@ -99,7 +100,8 @@ function initLegacyClient() {
     authStrategy: new LocalAuth({ dataPath: SESSION_PATH }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--single-process'],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     },
   })
   legacyClient.on('qr', (qr) => {
