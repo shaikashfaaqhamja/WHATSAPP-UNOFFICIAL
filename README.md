@@ -1,37 +1,40 @@
-# Unofficial WhatsApp fallback
+# WhatsApp Unofficial Fallback (Railway)
 
-This service uses **whatsapp-web.js** to send messages when the official Meta API fails (e.g. "recipient not in allowed list" or "not registered"). It uses **long random delays** between messages to reduce ban risk.
+Unofficial WhatsApp send service using whatsapp-web.js. Use as a fallback when the official Meta API is unavailable.
 
-**Two ways to use:**
+**Repo:** [github.com/shaikashfaaqhamja/WHATSAPP-UNOFFICIAL](https://github.com/shaikashfaaqhamja/WHATSAPP-UNOFFICIAL)
 
-- **App provides the URL** (recommended): Set `VITE_WHATSAPP_FALLBACK_URL` in the main app’s `.env` to this service’s URL (e.g. after you deploy it). Then users only enter their **secret key** in the app — no URL to copy. Each user has their own secret; the service is multi-tenant.
-- **User provides URL + secret**: Leave that env unset; users who deploy their own instance enter both URL and secret in the app.
+## Deploy on Railway
 
-## Setup
+1. **Connect repo**  
+   Railway → New Project → **Deploy from GitHub repo** → select [shaikashfaaqhamja/WHATSAPP-UNOFFICIAL](https://github.com/shaikashfaaqhamja/WHATSAPP-UNOFFICIAL) (or push this folder to your fork).
 
-1. Copy `.env.example` to `.env`. Optionally set:
-   - `SECRET`: If set, **single-tenant** mode — one global session, this one secret for everyone. If **omitted**, **multi-tenant** — each user has their own secret (used in the app when you provide the URL via `VITE_WHATSAPP_FALLBACK_URL`).
-   - Optionally: `DELAY_MIN_MS`, `DELAY_MAX_MS`, `JITTER_MS` (defaults: 12–25s + 0–2s jitter).
+2. **Build & deploy**  
+   Railway will use the **Dockerfile** and build with Node + Chrome.
 
-2. Install and run:
-   ```bash
-   npm install
-   npm start
+3. **Variables**  
+   In the service → **Variables**:
+   - `SESSION_PATH` = `./.wwebjs_auth` (or leave default)  
+   - Do **not** set `SECRET` if you want multi-tenant (each user has their own secret).
+
+4. **Domain**  
+   Service → **Settings** → **Networking** → **Generate domain**.  
+   Example: `https://whatsapp-unofficial-production.up.railway.app`
+
+5. **Main app**  
+   In your main app `.env` set:
+   ```env
+   VITE_WHATSAPP_FALLBACK_URL=https://YOUR-RAILWAY-DOMAIN.up.railway.app
    ```
+   Users then add their **secret** in the app; the app calls this URL for QR and send.
 
-3. Scan QR once: open `http://localhost:3780/qr?secret=YOUR_SECRET` in a browser (or check terminal for QR). After scanning, the session is saved; next runs won’t need QR unless you log out.
+## Usage
 
-4. In the main app, go to **Settings**, fill **Unofficial fallback URL** (e.g. `http://your-server:3780`) and **Unofficial fallback secret** (same as `SECRET`), then save.
+- **QR page:** `https://YOUR-DOMAIN/qr?secret=YOUR_SECRET`  
+  Open in browser, scan with WhatsApp (Linked devices), then use the same secret in the app.
+- **Health:** `GET /health`
+- **Send:** `POST /send` with body `{ "secret", "message", "recipients" }`
 
-When the official API returns "recipient not in allowed list" or "not registered", the app will send those recipients through this service with delays.
+## Memory
 
-## Endpoints
-
-- `GET /health` — `{ ok, ready }`
-- `GET /qr?secret=SECRET` — Returns QR image (data URL) or `{ status: "ready" }`
-- `GET /status?secret=SECRET` — `{ ready: true|false }`
-- `POST /send` — Body: `{ secret, message, recipients: [ { phone, contact_id } ] }`. Returns `{ results: [ { contact_id, phone, success, error? } ] }`.
-
-## Delays
-
-Default: 12–25 seconds between each message, plus 0–2s jitter. Do not lower these too much; WhatsApp may ban the number for automation.
+Chrome uses a lot of RAM. If the container stops after showing the QR, check Railway **Metrics** (memory). Consider upgrading the plan or increasing memory if available.

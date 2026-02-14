@@ -10,6 +10,13 @@ const express = require('express')
 const { Client, LocalAuth } = require('whatsapp-web.js')
 const qrcode = require('qrcode-terminal')
 
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err)
+})
+process.on('unhandledRejection', (reason, p) => {
+  console.error('Unhandled rejection at:', p, 'reason:', reason)
+})
+
 const PORT = Number(process.env.PORT) || 3780
 const SESSION_PATH = process.env.SESSION_PATH || './.wwebjs_auth'
 const DELAY_MIN_MS = Number(process.env.DELAY_MIN_MS) || 12000   // 12s
@@ -59,7 +66,18 @@ function getOrCreateClient(secret) {
     authStrategy: new LocalAuth({ clientId: id, dataPath }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--single-process'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--disable-software-rasterizer',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--memory-pressure-off',
+        '--js-flags=--max-old-space-size=256',
+      ],
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     },
   })
@@ -70,8 +88,10 @@ function getOrCreateClient(secret) {
   client.on('qr', (qr) => {
     state.qrCode = qr
     state.isReady = false
-    console.log(`[${id.slice(0, 8)}] QR received`)
-    qrcode.generate(qr, { small: true })
+    console.log(`[${id.slice(0, 8)}] QR received – serve it at /qr?secret=YOUR_SECRET`)
+    setImmediate(() => {
+      try { qrcode.generate(qr, { small: true }) } catch (e) { console.error('qrcode-terminal:', e) }
+    })
   })
 
   client.on('ready', () => {
@@ -100,14 +120,27 @@ function initLegacyClient() {
     authStrategy: new LocalAuth({ dataPath: SESSION_PATH }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--single-process'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--disable-software-rasterizer',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--memory-pressure-off',
+        '--js-flags=--max-old-space-size=256',
+      ],
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     },
   })
   legacyClient.on('qr', (qr) => {
     legacyQr = qr
-    console.log('Legacy: scan QR')
-    qrcode.generate(qr, { small: true })
+    console.log('Legacy: QR received')
+    setImmediate(() => {
+      try { qrcode.generate(qr, { small: true }) } catch (e) { console.error('qrcode-terminal:', e) }
+    })
   })
   legacyClient.on('ready', () => {
     legacyReady = true
@@ -260,7 +293,7 @@ function getQrPage() {
         fetch('/api/qr?secret=' + encodeURIComponent(secret), { signal: c.signal })
           .then(function(r) { clearTimeout(t); return r.json(); })
           .then(function(d) {
-            if (d.status === 'ready') { show('You\'re connected. Close this tab and use the app.', 'ready'); return; }
+            if (d.status === 'ready') { show('You\\'re connected. Close this tab and use the app.', 'ready'); return; }
             if (d.status === 'qr' && d.qr) { showQr(d.qr); return; }
             if (d.status === 'waiting') {
               var msg = 'Preparing QR… It will appear here automatically.';
@@ -288,7 +321,7 @@ function getQrPage() {
 
 app.get('/qr', (req, res) => {
   const secret = authSecret(req.query.secret)
-  const wantsJson = req.query.format === 'json' || (req.get && req.get('accept') && req.get('accept').toLowerCase().includes('application/json'))
+  const wantsJson = req.query.format === 'json' || req.get('accept')?.toLowerCase().includes('application/json')
   if (!wantsJson) {
     return res.type('html').send(getQrPage())
   }
