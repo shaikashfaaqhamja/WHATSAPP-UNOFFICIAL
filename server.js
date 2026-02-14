@@ -139,7 +139,13 @@ if (LEGACY_SECRET) initLegacyClient()
 
 app.get('/health', (req, res) => {
   const ready = LEGACY_SECRET ? legacyReady : Array.from(sessions.values()).some(s => s.isReady)
-  res.json({ ok: true, ready, multiTenant: MULTI_TENANT })
+  res.json({
+    ok: true,
+    ready,
+    multiTenant: MULTI_TENANT,
+    chrome: !!process.env.PUPPETEER_EXECUTABLE_PATH,
+    chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || '(not set – QR may not work)',
+  })
 })
 
 function sendQrJson(secret, res) {
