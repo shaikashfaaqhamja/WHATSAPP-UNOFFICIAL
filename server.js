@@ -140,25 +140,90 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, ready, multiTenant: MULTI_TENANT })
 })
 
-app.get('/qr', (req, res) => {
-  const secret = authSecret(req.query.secret)
-  if (!secret) {
-    return res.status(401).json({ error: 'Unauthorized: provide a valid secret in query (e.g. /qr?secret=YOUR_SECRET)' })
-  }
+function sendQrJson(secret, res) {
   const state = getState(secret)
   if (!state) return res.status(500).json({ error: 'Failed to get session' })
-
-  if (state.isReady) {
-    return res.json({ status: 'ready', message: 'Already logged in' })
-  }
-  if (!state.qrCode) {
-    return res.json({ status: 'waiting', message: 'Waiting for QR; refresh in a few seconds' })
-  }
+  if (state.isReady) return res.json({ status: 'ready', message: 'Already logged in' })
+  if (!state.qrCode) return res.json({ status: 'waiting', message: 'Waiting for QR; refresh in a few seconds' })
   const QRCode = require('qrcode')
   QRCode.toDataURL(state.qrCode, (err, url) => {
     if (err) return res.status(500).json({ error: err.message })
     res.json({ status: 'qr', qr: url })
   })
+}
+
+app.get('/api/qr', (req, res) => {
+  const secret = authSecret(req.query.secret)
+  if (!secret) return res.status(401).json({ error: 'Unauthorized: provide a valid secret (e.g. /api/qr?secret=YOUR_SECRET)' })
+  sendQrJson(secret, res)
+})
+
+function getQrPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect WhatsApp</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #111; color: #eee; text-align: center; }
+    h1 { font-size: 1.5rem; margin-bottom: 8px; }
+    p { color: #aaa; margin: 8px 0; max-width: 360px; }
+    #status { margin: 24px 0; min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    #status img { max-width: 280px; height: auto; border-radius: 12px; }
+    .ready { color: #4ade80; }
+    .waiting { color: #fbbf24; }
+    .error { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>Connect WhatsApp</h1>
+  <div id="status"><p>Loading…</p></div>
+  <p>Use the same secret in the app when sending via fallback.</p>
+  <script>
+    const secret = new URLSearchParams(location.search).get('secret');
+    const statusEl = document.getElementById('status');
+    function show(msg, className) {
+      statusEl.innerHTML = '<p class="' + (className || '') + '">' + msg + '</p>';
+    }
+    function showQr(dataUrl) {
+      statusEl.innerHTML = '<p>Scan with WhatsApp on your phone:</p><p>Settings → Linked devices → Link a device</p><img src="' + dataUrl + '" alt="QR code">';
+    }
+    if (!secret) {
+      show('Add your secret to the URL: <br><code>?secret=YOUR_SECRET</code><br>Use the same secret you enter in the app.', 'error');
+    } else {
+      function poll() {
+        fetch('/api/qr?secret=' + encodeURIComponent(secret))
+          .then(r => r.json())
+          .then(d => {
+            if (d.status === 'ready') { show('You\'re connected. You can close this tab and use the app.', 'ready'); return; }
+            if (d.status === 'qr') { showQr(d.qr); return; }
+            if (d.status === 'waiting') {
+              show('Preparing QR… (first time can take 20–40 seconds). Refreshing automatically.', 'waiting');
+              setTimeout(poll, 2500);
+              return;
+            }
+            show(d.error || d.message || 'Something went wrong.', 'error');
+          })
+          .catch(e => { show('Network error: ' + e.message, 'error'); });
+      }
+      poll();
+    }
+  </script>
+</body>
+</html>`
+}
+
+app.get('/qr', (req, res) => {
+  const secret = authSecret(req.query.secret)
+  if (req.accepts('html') && !req.accepts('json')) {
+    return res.type('html').send(getQrPage())
+  }
+  if (!secret) {
+    return res.status(401).json({ error: 'Unauthorized: provide a valid secret in query (e.g. /qr?secret=YOUR_SECRET)' })
+  }
+  sendQrJson(secret, res)
 })
 
 app.get('/status', (req, res) => {
