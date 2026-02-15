@@ -22,6 +22,8 @@ const SESSION_PATH = process.env.SESSION_PATH || './.wwebjs_auth'
 const DELAY_MIN_MS = Number(process.env.DELAY_MIN_MS) || 12000   // 12s
 const DELAY_MAX_MS = Number(process.env.DELAY_MAX_MS) || 25000   // 25s
 const JITTER_MS = Number(process.env.JITTER_MS) || 2000          // 0–2s extra
+// Optional: Supabase Edge Function URL for inbound reply handling (e.g. https://PROJECT.supabase.co/functions/v1/inbound-from-unofficial). If set, incoming messages are sent here and the returned reply is sent back to the contact.
+const INBOUND_EDGE_URL = (process.env.INBOUND_EDGE_URL || '').trim()
 
 // Optional: single shared SECRET (legacy). If set, only this secret is accepted; one global client.
 const LEGACY_SECRET = (process.env.SECRET || '').trim()
@@ -82,7 +84,7 @@ function getOrCreateClient(secret) {
     },
   })
 
-  state = { client, isReady: false, qrCode: null }
+  state = { client, isReady: false, qrCode: null, secret }
   sessions.set(id, state)
 
   client.on('qr', (qr) => {
@@ -109,6 +111,30 @@ function getOrCreateClient(secret) {
     console.log(`[${id.slice(0, 8)}] Disconnected:`, reason)
     state.isReady = false
   })
+
+  if (INBOUND_EDGE_URL) {
+    client.on('message', async (msg) => {
+      try {
+        const from = msg.from
+        const body = typeof msg.body === 'string' ? msg.body : (msg.body || '')
+        const secretToUse = state.secret
+        if (!secretToUse || !from) return
+        const fromPhone = from.replace('@c.us', '').replace('@s.whatsapp.net', '')
+        const res = await fetch(INBOUND_EDGE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: secretToUse, from_phone: fromPhone, body }),
+        })
+        const data = await res.json().catch(() => ({}))
+        const reply = data && typeof data.reply === 'string' ? data.reply.trim() : ''
+        if (reply) {
+          await msg.reply(reply)
+        }
+      } catch (err) {
+        console.error(`[${id.slice(0, 8)}] Inbound reply error:`, err)
+      }
+    })
+  }
 
   client.initialize().catch((err) => console.error(`[${id.slice(0, 8)}] Init error:`, err))
   return state
@@ -149,6 +175,26 @@ function initLegacyClient() {
   })
   legacyClient.on('auth_failure', (msg) => { console.error('Legacy auth failure:', msg); legacyReady = false })
   legacyClient.on('disconnected', (r) => { console.log('Legacy disconnected:', r); legacyReady = false })
+  if (INBOUND_EDGE_URL) {
+    legacyClient.on('message', async (msg) => {
+      try {
+        const from = msg.from
+        const body = typeof msg.body === 'string' ? msg.body : (msg.body || '')
+        if (!LEGACY_SECRET || !from) return
+        const fromPhone = from.replace('@c.us', '').replace('@s.whatsapp.net', '')
+        const res = await fetch(INBOUND_EDGE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: LEGACY_SECRET, from_phone: fromPhone, body }),
+        })
+        const data = await res.json().catch(() => ({}))
+        const reply = data && typeof data.reply === 'string' ? data.reply.trim() : ''
+        if (reply) await msg.reply(reply)
+      } catch (err) {
+        console.error('Legacy inbound reply error:', err)
+      }
+    })
+  }
   legacyClient.initialize().catch((err) => console.error('Legacy init error:', err))
 }
 

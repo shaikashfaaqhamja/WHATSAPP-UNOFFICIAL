@@ -16,6 +16,7 @@ Unofficial WhatsApp send service using whatsapp-web.js. Use as a fallback when t
    In the service → **Variables**:
    - `SESSION_PATH` = `./.wwebjs_auth` (or leave default)  
    - Do **not** set `SECRET` if you want multi-tenant (each user has their own secret).
+   - **Optional – auto-reply to incoming messages:** set `INBOUND_EDGE_URL` to your Supabase Edge Function URL, e.g. `https://YOUR_PROJECT_REF.supabase.co/functions/v1/inbound-from-unofficial`. When contacts message you, the app will reply (feedback 1–5, options 1/2/3, AI from product description). Deploy the `inbound-from-unofficial` function from the main WHATSAPP-AUTOMATION repo first.
 
 4. **Domain**  
    Service → **Settings** → **Networking** → **Generate domain**.  
@@ -34,6 +35,7 @@ Unofficial WhatsApp send service using whatsapp-web.js. Use as a fallback when t
   Open in browser, scan with WhatsApp (Linked devices), then use the same secret in the app.
 - **Health:** `GET /health`
 - **Send:** `POST /send` with body `{ "secret", "message", "recipients" }`
+- **Inbound replies:** If `INBOUND_EDGE_URL` is set, incoming WhatsApp messages are sent to that Edge Function; the returned `reply` is sent back to the contact (same logic as Meta webhook).
 
 ## Memory
 
