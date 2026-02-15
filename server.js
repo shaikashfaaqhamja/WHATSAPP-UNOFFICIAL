@@ -433,6 +433,7 @@ app.post('/send', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Unofficial WhatsApp fallback on port ${PORT}.`)
+  if (INBOUND_EDGE_URL) console.log('INBOUND_EDGE_URL set: auto-replies (1/2/3, feedback 1–5) enabled.')
   if (LEGACY_SECRET) {
     console.log('Running in single-tenant mode (SECRET env set). Use /qr?secret=YOUR_SECRET to get QR.')
   } else {

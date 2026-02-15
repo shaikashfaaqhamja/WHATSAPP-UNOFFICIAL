@@ -37,6 +37,20 @@ Unofficial WhatsApp send service using whatsapp-web.js. Use as a fallback when t
 - **Send:** `POST /send` with body `{ "secret", "message", "recipients" }`
 - **Inbound replies:** If `INBOUND_EDGE_URL` is set, incoming WhatsApp messages are sent to that Edge Function; the returned `reply` is sent back to the contact (same logic as Meta webhook).
 
+## Option A: Enable auto-replies (1/2/3, feedback 1–5)
+
+1. In the **main app repo** (WHATSAPP-AUTOMATION), deploy the Edge Function:
+   ```bash
+   npx supabase functions deploy inbound-from-unofficial
+   ```
+2. Copy your Supabase Edge Function URL: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/inbound-from-unofficial`  
+   (Get YOUR_PROJECT_REF from Supabase Dashboard → Project Settings → General. Or copy from the main app **Settings → Unofficial fallback**.)
+3. In **Railway** → your WhatsApp-unofficial service → **Variables** → **New variable**:
+   - Name: `INBOUND_EDGE_URL`
+   - Value: the URL from step 2
+4. **Redeploy** the service (or restart) so it picks up the variable.  
+After that, when contacts reply to your campaign (e.g. 1, 2, 3 or 1–5 for feedback), they will get the auto-reply.
+
 ## Memory
 
 Chrome uses a lot of RAM. If the container stops after showing the QR, check Railway **Metrics** (memory). Consider upgrading the plan or increasing memory if available.
